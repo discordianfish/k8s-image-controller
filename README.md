@@ -86,8 +86,9 @@ This is an example of how to build a kube-like controller with a single type.
 go build -o sample-controller .
 ./sample-controller -kubeconfig=$HOME/.kube/config
 
-# create a CustomResourceDefinition
+# create the CustomResourceDefinition and subresource
 kubectl create -f artifacts/examples/crd.yaml
+kubectl create -f artifacts/examples/crd-status-subresource.yaml
 
 # create a custom resource of type Foo
 kubectl create -f artifacts/examples/example-foo.yaml
