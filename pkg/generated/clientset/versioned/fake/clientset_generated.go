@@ -19,14 +19,14 @@ limitations under the License.
 package fake
 
 import (
+	clientset "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned"
+	imagecontrollerv1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/typed/imagecontroller/v1alpha1"
+	fakeimagecontrollerv1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/typed/imagecontroller/v1alpha1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
-	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
-	samplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/samplecontroller/v1alpha1"
-	fakesamplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/samplecontroller/v1alpha1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -79,7 +79,7 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
-// SamplecontrollerV1alpha1 retrieves the SamplecontrollerV1alpha1Client
-func (c *Clientset) SamplecontrollerV1alpha1() samplecontrollerv1alpha1.SamplecontrollerV1alpha1Interface {
-	return &fakesamplecontrollerv1alpha1.FakeSamplecontrollerV1alpha1{Fake: &c.Fake}
+// ImagecontrollerV1alpha1 retrieves the ImagecontrollerV1alpha1Client
+func (c *Clientset) ImagecontrollerV1alpha1() imagecontrollerv1alpha1.ImagecontrollerV1alpha1Interface {
+	return &fakeimagecontrollerv1alpha1.FakeImagecontrollerV1alpha1{Fake: &c.Fake}
 }

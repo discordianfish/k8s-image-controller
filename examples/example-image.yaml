@@ -1,0 +1,25 @@
+apiVersion: imagecontroller.k8s.io/v1alpha1
+kind: Image
+metadata:
+  name: my-minecraft-image
+spec:
+  registry: docker.io
+  repository: fish/minecraft
+  tag: a661509cb60bc536105128705744b518c110278c
+  containerfile: |||
+    FROM ubuntu:20.04
+    WORKDIR /paper
+    ENV PAPER_DL_URL=https://papermc.io/api/v2/projects/paper/versions/1.18.1/builds/134/downloads/paper-1.18.1-134.jar
+    RUN set -x && \
+        apt-get -qy update && \
+        apt-get -qy install apt-transport-https curl openjdk-17-jre-headless && \
+        curl -Lfo paper.jar "$PAPER_DL_URL" && \
+        java -jar /paper/paper.jar -Dpaperclip.patchonly=true && \
+        useradd -d /tmp/ minecraft && \
+        ln -s /tmp/ logs && \
+        mkdir plugins && \
+        install -d -o minecraft -g minecraft /data && \
+        curl -Lfo plugins/AmkMcAuth.jar 'https://media.forgecdn.net/files/3042/673/AmkMcAuth.jar' && \
+        curl -Lfo plugins/GriefPrevention.jar 'https://media.forgecdn.net/files/3173/411/GriefPrevention.jar' && \
+        curl -Lfo plugins/Geyser.jar 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/lastSuccessfulBuild/artifact/bootstrap/spigot/target/Geyser-Spigot.jar' && \
+        curl -Lfo plugins/Dynmap.jar 'https://github.com/webbukkit/dynmap/releases/download/v3.3-beta-2/Dynmap-3.3-beta-2-spigot.jar'
