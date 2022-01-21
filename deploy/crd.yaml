@@ -20,17 +20,19 @@ spec:
             spec:
               type: object
               properties:
-                deploymentName:
+                registry:
                   type: string
-                replicas:
-                  type: integer
-                  minimum: 1
-                  maximum: 10
+                repository:
+                  type: string
+                tag:
+                  type: string
+                containerfile:
+                  type: string
             status:
               type: object
               properties:
-                availableReplicas:
-                  type: integer
+                image:
+                  type: string
       # subresources for the custom resource
       subresources:
         # enables the status subresource
