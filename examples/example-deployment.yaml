@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: example-deployment
+  name: example-deployment
+  annotations:
+    images.imagecontroller.k8s.io/image: my-example-image
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example-deployment
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: example-deployment
+    spec:
+      containers:
+      - image: busybox
+        name: busybox
+        resources: {}
+status: {}

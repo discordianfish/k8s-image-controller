@@ -1,12 +1,12 @@
 apiVersion: imagecontroller.k8s.io/v1alpha1
 kind: Image
 metadata:
-  name: my-minecraft-image
+  name: my-example-image
 spec:
   registry: docker.io
   repository: fish/minecraft
   tag: a661509cb60bc536105128705744b518c110278c
-  containerfile: |||
+  containerfile: |
     FROM ubuntu:20.04
     WORKDIR /paper
     ENV PAPER_DL_URL=https://papermc.io/api/v2/projects/paper/versions/1.18.1/builds/134/downloads/paper-1.18.1-134.jar
