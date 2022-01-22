@@ -19,9 +19,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/alessio/shellescape"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,16 +32,19 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
 	batchinformers "k8s.io/client-go/informers/batch/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	appslisters "k8s.io/client-go/listers/apps/v1"
 	batchlisters "k8s.io/client-go/listers/batch/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	"github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller"
 	imagev1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
 	clientset "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned"
 	imagescheme "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/scheme"
@@ -71,10 +76,12 @@ type Controller struct {
 	// imageclientset is a clientset for our own API group
 	imageclientset clientset.Interface
 
-	jobsLister   batchlisters.JobLister
-	jobsSynced   cache.InformerSynced
-	imagesLister listers.ImageLister
-	imagesSynced cache.InformerSynced
+	jobsLister        batchlisters.JobLister
+	jobsSynced        cache.InformerSynced
+	imagesLister      listers.ImageLister
+	imagesSynced      cache.InformerSynced
+	deploymentsLister appslisters.DeploymentLister
+	deploymentsSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -92,7 +99,8 @@ func NewController(
 	kubeclientset kubernetes.Interface,
 	client clientset.Interface,
 	jobInformer batchinformers.JobInformer,
-	imageInformer informers.ImageInformer) *Controller {
+	imageInformer informers.ImageInformer,
+	deploymentInformer appsinformers.DeploymentInformer) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -105,14 +113,17 @@ func NewController(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		kubeclientset:  kubeclientset,
-		imageclientset: client,
-		jobsLister:     jobInformer.Lister(),
-		jobsSynced:     jobInformer.Informer().HasSynced,
-		imagesLister:   imageInformer.Lister(),
-		imagesSynced:   imageInformer.Informer().HasSynced,
-		workqueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Images"),
-		recorder:       recorder,
+		kubeclientset:     kubeclientset,
+		imageclientset:    client,
+		jobsLister:        jobInformer.Lister(),
+		jobsSynced:        jobInformer.Informer().HasSynced,
+		imagesLister:      imageInformer.Lister(),
+		imagesSynced:      imageInformer.Informer().HasSynced,
+		deploymentsLister: deploymentInformer.Lister(),
+		deploymentsSynced: deploymentInformer.Informer().HasSynced,
+
+		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Images"),
+		recorder:  recorder,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -160,7 +171,7 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.jobsSynced, c.imagesSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.jobsSynced, c.imagesSynced, c.imagesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -281,7 +292,7 @@ func (c *Controller) syncHandler(key string) error {
 			continue
 		}
 		if metav1.IsControlledBy(j, image) {
-			klog.Info("Found job for image:", j)
+			//klog.Info("Found job for image:", j)
 			job = j
 			break
 		}
@@ -293,6 +304,18 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
+	success := false
+	for _, condition := range job.Status.Conditions {
+		if condition.Status == "True" && condition.Type == "Complete" {
+			success = true
+		}
+	}
+	if success {
+		if err := c.updateDeployments(image); err != nil {
+			return err
+		}
+	}
+
 	// Finally, we update the status block of the Image resource to reflect the
 	// current state of the world
 	err = c.updateImageStatus(image)
@@ -302,6 +325,82 @@ func (c *Controller) syncHandler(key string) error {
 
 	c.recorder.Event(image, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
 	return nil
+}
+
+func splitNamespace(fqname string) (namespace, name string) {
+	parts := strings.SplitN(fqname, "/", 2)
+	if len(parts) != 2 {
+		return "", fqname
+	}
+	return parts[0], parts[1]
+}
+
+func (c *Controller) updateDeployments(image *imagev1alpha1.Image) error {
+	// FIXME: Find a cheaper way to do this
+	deployments, err := c.deploymentsLister.Deployments("").List(labels.Everything())
+	if err != nil {
+		return err
+	}
+	prefix := "images." + imagecontroller.GroupName + "/"
+	for _, deployment := range deployments {
+
+		containerNames := []string{}
+		for k, imageName := range deployment.ObjectMeta.Annotations {
+			if !strings.HasPrefix(k, prefix) {
+				continue
+			}
+			namespace, name := splitNamespace(imageName)
+			if namespace == "" {
+				namespace = deployment.Namespace
+			}
+			klog.Info("deployment=", deployment.Namespace, "/", deployment.Name, ", annotion=", k, ", prefix=", prefix, ", imageName=", imageName, ", name=", name, ", namespace=", namespace)
+
+			klog.Infof("name(%s) != image.Name(%s) || namespace(%s) != image.Namespace(%s)", name, image.Name, namespace, image.Namespace)
+			if name != image.Name || namespace != image.Namespace {
+				continue
+			}
+			containerName := k[len(prefix):]
+			klog.Infof("Found deployment %s referencing image %s in container %s, updating it..", deployment.Name, image.Name, containerName)
+			containerNames = append(containerNames, containerName)
+		}
+
+		if err := c.updateDeployment(deployment, image, containerNames); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func contains(a []string, s string) bool {
+	for _, e := range a {
+		if e == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Controller) updateDeployment(deployment *appsv1.Deployment, image *imagev1alpha1.Image, containerNames []string) error {
+	deploymentCopy := deployment.DeepCopy()
+	change := false
+	for i, container := range deploymentCopy.Spec.Template.Spec.Containers {
+		if !contains(containerNames, container.Name) {
+			continue
+		}
+		imageName := nameFromImage(image)
+		if container.Image == imageName {
+			continue
+		}
+		change = true
+		deploymentCopy.Spec.Template.Spec.Containers[i].Image = imageName
+		klog.Info("setting image to ", imageName, "in container ", container.Name)
+	}
+	if !change {
+		return nil
+	}
+	klog.Info("Updating deployment: ", deploymentCopy.Spec.Template.Spec.Containers)
+	_, err := c.kubeclientset.AppsV1().Deployments(deployment.Namespace).Update(context.TODO(), deploymentCopy, metav1.UpdateOptions{})
+	return err
 }
 
 func (c *Controller) updateImageStatus(image *imagev1alpha1.Image) error {
@@ -372,6 +471,10 @@ func (c *Controller) handleObject(obj interface{}) {
 	}
 }
 
+func nameFromImage(image *imagev1alpha1.Image) string {
+	return fmt.Sprintf("%s/%s:%s", image.Spec.Registry, image.Spec.Repository, image.Spec.Tag)
+}
+
 // newBuildJob creates a new Job for a Image resource. It also sets
 // the appropriate OwnerReferences on the resource so handleObject can discover
 // the Image resource that 'owns' it.
@@ -381,9 +484,9 @@ func newBuildJob(image *imagev1alpha1.Image) *batchv1.Job {
 	script := fmt.Sprintf(`
 mkdir /tmp/context
 echo %s > /tmp/context/Containerfile
-IMAGE="%s/%s:%s"
+IMAGE="%s"
 podman build --isolation chroot -t "$IMAGE" /tmp/context
-podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), image.Spec.Registry, image.Spec.Repository, image.Spec.Tag)
+podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), nameFromImage(image))
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: image.Name,
