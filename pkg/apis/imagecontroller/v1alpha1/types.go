@@ -34,13 +34,15 @@ type Image struct {
 
 // ImageSpec is the spec for a Image resource
 type ImageSpec struct {
-	DeploymentName string `json:"deploymentName"`
-	Replicas       *int32 `json:"replicas"`
+	Containerfile string `json:"containerfile"`
+	Registry      string `json:"registry"`
+	Repository    string `json:"repository"`
+	Tag           string `json:"tag"`
 }
 
 // ImageStatus is the status for a Image resource
 type ImageStatus struct {
-	AvailableReplicas int32 `json:"availableReplicas"`
+	Image string `json:"image"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

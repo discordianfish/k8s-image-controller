@@ -21,17 +21,20 @@ import (
 	"fmt"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
+	"github.com/alessio/shellescape"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
+	batchinformers "k8s.io/client-go/informers/batch/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	appslisters "k8s.io/client-go/listers/apps/v1"
+	batchlisters "k8s.io/client-go/listers/batch/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -65,13 +68,13 @@ const (
 type Controller struct {
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
-	// sampleclientset is a clientset for our own API group
-	sampleclientset clientset.Interface
+	// imageclientset is a clientset for our own API group
+	imageclientset clientset.Interface
 
-	deploymentsLister appslisters.DeploymentLister
-	deploymentsSynced cache.InformerSynced
-	imagesLister      listers.ImageLister
-	imagesSynced      cache.InformerSynced
+	jobsLister   batchlisters.JobLister
+	jobsSynced   cache.InformerSynced
+	imagesLister listers.ImageLister
+	imagesSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -87,8 +90,8 @@ type Controller struct {
 // NewController returns a new sample controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	sampleclientset clientset.Interface,
-	deploymentInformer appsinformers.DeploymentInformer,
+	client clientset.Interface,
+	jobInformer batchinformers.JobInformer,
 	imageInformer informers.ImageInformer) *Controller {
 
 	// Create event broadcaster
@@ -102,14 +105,14 @@ func NewController(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		kubeclientset:     kubeclientset,
-		sampleclientset:   sampleclientset,
-		deploymentsLister: deploymentInformer.Lister(),
-		deploymentsSynced: deploymentInformer.Informer().HasSynced,
-		imagesLister:      imageInformer.Lister(),
-		imagesSynced:      imageInformer.Informer().HasSynced,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Images"),
-		recorder:          recorder,
+		kubeclientset:  kubeclientset,
+		imageclientset: client,
+		jobsLister:     jobInformer.Lister(),
+		jobsSynced:     jobInformer.Informer().HasSynced,
+		imagesLister:   imageInformer.Lister(),
+		imagesSynced:   imageInformer.Informer().HasSynced,
+		workqueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Images"),
+		recorder:       recorder,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -120,20 +123,20 @@ func NewController(
 			controller.enqueueImage(new)
 		},
 	})
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
+	// Set up an event handler for when Job resources change. This
+	// handler will lookup the owner of the given Job, and if it is
 	// owned by a Image resource then the handler will enqueue that Image resource for
 	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
+	// handling Job resources. More info on this pattern:
 	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	jobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.handleObject,
 		UpdateFunc: func(old, new interface{}) {
-			newDepl := new.(*appsv1.Deployment)
-			oldDepl := old.(*appsv1.Deployment)
-			if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-				// Periodic resync will send update events for all known Deployments.
-				// Two different versions of the same Deployment will always have different RVs.
+			newJob := new.(*batchv1.Job)
+			oldJob := old.(*batchv1.Job)
+			if newJob.ResourceVersion == oldJob.ResourceVersion {
+				// Periodic resync will send update events for all known Jobs.
+				// Two different versions of the same Jobs will always have different RVs.
 				return
 			}
 			controller.handleObject(new)
@@ -157,7 +160,7 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.deploymentsSynced, c.imagesSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.jobsSynced, c.imagesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -261,21 +264,8 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	deploymentName := image.Spec.DeploymentName
-	if deploymentName == "" {
-		// We choose to absorb the error here as the worker would requeue the
-		// resource otherwise. Instead, the next time the resource is updated
-		// the resource will be queued again.
-		utilruntime.HandleError(fmt.Errorf("%s: deployment name must be specified", key))
-		return nil
-	}
-
-	// Get the deployment with the name specified in Image.spec
-	deployment, err := c.deploymentsLister.Deployments(image.Namespace).Get(deploymentName)
-	// If the resource doesn't exist, we'll create it
-	if errors.IsNotFound(err) {
-		deployment, err = c.kubeclientset.AppsV1().Deployments(image.Namespace).Create(context.TODO(), newDeployment(image), metav1.CreateOptions{})
-	}
+	// FIXME: Find a cheaper way to do this
+	jobs, err := c.jobsLister.Jobs(image.Namespace).List(labels.Everything())
 
 	// If an error occurs during Get/Create, we'll requeue the item so we can
 	// attempt processing again later. This could have been caused by a
@@ -284,32 +274,28 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	// If the Deployment is not controlled by this Image resource, we should log
-	// a warning to the event recorder and return error msg.
-	if !metav1.IsControlledBy(deployment, image) {
-		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-		c.recorder.Event(image, corev1.EventTypeWarning, ErrResourceExists, msg)
-		return fmt.Errorf("%s", msg)
+	var job *batchv1.Job
+	for _, j := range jobs {
+		// why are there so many nil jobs?
+		if j == nil {
+			continue
+		}
+		if metav1.IsControlledBy(j, image) {
+			klog.Info("Found job for image:", j)
+			job = j
+			break
+		}
 	}
-
-	// If this number of the replicas on the Image resource is specified, and the
-	// number does not equal the current desired replicas on the Deployment, we
-	// should update the Deployment resource.
-	if image.Spec.Replicas != nil && *image.Spec.Replicas != *deployment.Spec.Replicas {
-		klog.V(4).Infof("Image %s replicas: %d, deployment replicas: %d", name, *image.Spec.Replicas, *deployment.Spec.Replicas)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(image.Namespace).Update(context.TODO(), newDeployment(image), metav1.UpdateOptions{})
+	if job == nil {
+		job, err = c.kubeclientset.BatchV1().Jobs(image.Namespace).Create(context.TODO(), newBuildJob(image), metav1.CreateOptions{})
 	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
 	if err != nil {
 		return err
 	}
 
 	// Finally, we update the status block of the Image resource to reflect the
 	// current state of the world
-	err = c.updateImageStatus(image, deployment)
+	err = c.updateImageStatus(image)
 	if err != nil {
 		return err
 	}
@@ -318,17 +304,18 @@ func (c *Controller) syncHandler(key string) error {
 	return nil
 }
 
-func (c *Controller) updateImageStatus(image *imagev1alpha1.Image, deployment *appsv1.Deployment) error {
+func (c *Controller) updateImageStatus(image *imagev1alpha1.Image) error {
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	// Or create a copy manually for better performance
+
 	imageCopy := image.DeepCopy()
-	imageCopy.Status.AvailableReplicas = deployment.Status.AvailableReplicas
+	//imageCopy.Status.AvailableReplicas = deployment.Status.AvailableReplicas
 	// If the CustomResourceSubresources feature gate is not enabled,
 	// we must use Update instead of UpdateStatus to update the Status block of the Image resource.
 	// UpdateStatus will not allow changes to the Spec of the resource,
 	// which is ideal for ensuring nothing other than resource status has been updated.
-	_, err := c.sampleclientset.ImagecontrollerV1alpha1().Images(image.Namespace).UpdateStatus(context.TODO(), imageCopy, metav1.UpdateOptions{})
+	_, err := c.imageclientset.ImagecontrollerV1alpha1().Images(image.Namespace).UpdateStatus(context.TODO(), imageCopy, metav1.UpdateOptions{})
 	return err
 }
 
@@ -385,36 +372,96 @@ func (c *Controller) handleObject(obj interface{}) {
 	}
 }
 
-// newDeployment creates a new Deployment for a Image resource. It also sets
+// newBuildJob creates a new Job for a Image resource. It also sets
 // the appropriate OwnerReferences on the resource so handleObject can discover
 // the Image resource that 'owns' it.
-func newDeployment(image *imagev1alpha1.Image) *appsv1.Deployment {
-	labels := map[string]string{
-		"app":        "nginx",
-		"controller": image.Name,
-	}
-	return &appsv1.Deployment{
+func newBuildJob(image *imagev1alpha1.Image) *batchv1.Job {
+	uid := int64(1000)
+	// FIXME FIXME: Triple check this is safe
+	script := fmt.Sprintf(`
+mkdir /tmp/context
+echo %s > /tmp/context/Containerfile
+IMAGE="%s/%s:%s"
+podman build --isolation chroot -t "$IMAGE" /tmp/context
+podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), image.Spec.Registry, image.Spec.Repository, image.Spec.Tag)
+	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      image.Spec.DeploymentName,
-			Namespace: image.Namespace,
+			GenerateName: image.Name,
+			Namespace:    image.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(image, imagev1alpha1.SchemeGroupVersion.WithKind("Image")),
 			},
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: image.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
+		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Annotations: map[string]string{
+						"container.apparmor.security.beta.kubernetes.io/builder": "unconfined",
+					},
 				},
 				Spec: corev1.PodSpec{
+					RestartPolicy: "OnFailure",
+					NodeSelector: map[string]string{
+						"kubernetes.io/hostname": "filer",
+					},
 					Containers: []corev1.Container{
 						{
-							Name:  "nginx",
-							Image: "nginx:latest",
+							Name:       "builder",
+							Image:      "quay.io/podman/stable",
+							WorkingDir: "/usr/src",
+							Args:       []string{"/bin/bash", "-xeuo", "pipefail", "-c", script},
+							SecurityContext: &corev1.SecurityContext{
+								RunAsUser: &uid,
+							},
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									"github.com/fuse": resource.MustParse("1"),
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "image-push-secret",
+									MountPath: "/home/podman/.docker",
+								}, {
+									Name:      "podman-local",
+									MountPath: "/home/podman/.local/share/containers",
+								}, {
+									Name:      "tls-certs",
+									MountPath: "/etc/ssl/certs",
+									ReadOnly:  true,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "image-push-secret",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: "image-pull-secret",
+									Items: []corev1.KeyToPath{
+										{
+											Key:  ".dockerconfigjson",
+											Path: "config.json",
+										},
+									},
+								},
+							},
+						},
+						{
+							Name: "podman-local",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/tmp/podman-containers",
+								},
+							},
+						}, {
+							Name: "tls-certs",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/etc/ssl/certs",
+								},
+							},
 						},
 					},
 				},

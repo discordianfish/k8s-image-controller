@@ -3,14 +3,15 @@ kind: Image
 metadata:
   name: my-example-image
 spec:
-  registry: docker.io
-  repository: fish/minecraft
-  tag: a661509cb60bc536105128705744b518c110278c
+  registry: registry.d.42o.de
+  repository: minecraft
+  tag: test123
   containerfile: |
     FROM ubuntu:20.04
     WORKDIR /paper
     ENV PAPER_DL_URL=https://papermc.io/api/v2/projects/paper/versions/1.18.1/builds/134/downloads/paper-1.18.1-134.jar
     RUN set -x && \
+        echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/disable-sandbox && \
         apt-get -qy update && \
         apt-get -qy install apt-transport-https curl openjdk-17-jre-headless && \
         curl -Lfo paper.jar "$PAPER_DL_URL" && \
