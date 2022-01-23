@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: imagecontroller
+rules:
+- apiGroups:
+  - imagecontroller.k8s.io
+  resources:
+  - images
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - imagecontroller.k8s.io
+  resources:
+  - images/status
+  verbs:
+  - update
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
