@@ -36,3 +36,8 @@ kubectl create -f examples/example-image.yaml
 # check images created
 kubectl get images
 ```
+
+### TODO
+- [ ] Updating image should update/recreate job
+- [x] Support build args
+- [ ] Support build context

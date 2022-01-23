@@ -475,6 +475,15 @@ func nameFromImage(image *imagev1alpha1.Image) string {
 	return fmt.Sprintf("%s/%s:%s", image.Spec.Registry, image.Spec.Repository, image.Spec.Tag)
 }
 
+func buildArgsFromImage(image *imagev1alpha1.Image) string {
+	args := make([]string, len(image.Spec.BuildArgs)*2)
+	for i, arg := range image.Spec.BuildArgs {
+		args[i] = "--build-arg"
+		args[i+1] = shellescape.Quote(arg.Name + "=" + arg.Value)
+	}
+	return strings.Join(args, " ")
+}
+
 // newBuildJob creates a new Job for a Image resource. It also sets
 // the appropriate OwnerReferences on the resource so handleObject can discover
 // the Image resource that 'owns' it.
@@ -485,8 +494,8 @@ func newBuildJob(image *imagev1alpha1.Image) *batchv1.Job {
 mkdir /tmp/context
 echo %s > /tmp/context/Containerfile
 IMAGE="%s"
-podman build --isolation chroot -t "$IMAGE" /tmp/context
-podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), nameFromImage(image))
+podman build --isolation chroot -t "$IMAGE" %s /tmp/context
+podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), nameFromImage(image), buildArgsFromImage(image))
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: image.Name,

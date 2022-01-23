@@ -34,10 +34,16 @@ type Image struct {
 
 // ImageSpec is the spec for a Image resource
 type ImageSpec struct {
-	Containerfile string `json:"containerfile"`
-	Registry      string `json:"registry"`
-	Repository    string `json:"repository"`
-	Tag           string `json:"tag"`
+	Containerfile string     `json:"containerfile"`
+	Registry      string     `json:"registry"`
+	Repository    string     `json:"repository"`
+	Tag           string     `json:"tag"`
+	BuildArgs     []BuildArg `json:"buildArgs"`
+}
+
+type BuildArg struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // ImageStatus is the status for a Image resource

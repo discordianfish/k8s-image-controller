@@ -28,6 +28,15 @@ spec:
                   type: string
                 containerfile:
                   type: string
+                buildArgs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
             status:
               type: object
               properties:
