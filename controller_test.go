@@ -17,12 +17,12 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	apps "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	imagecontroller "github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
+	imagev1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
 	"github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/fake"
 	informers "github.com/discordianfish/k8s-image-controller/pkg/generated/informers/externalversions"
 )
@@ -49,8 +50,8 @@ type fixture struct {
 	client     *fake.Clientset
 	kubeclient *k8sfake.Clientset
 	// Objects to put in the store.
-	imageLister      []*imagecontroller.Image
-	deploymentLister []*apps.Deployment
+	imageLister []*imagecontroller.Image
+	jobsLister  []*batchv1.Job
 	// Actions expected to happen on the client.
 	kubeactions []core.Action
 	actions     []core.Action
@@ -67,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
-func newImage(name string, replicas *int32) *imagecontroller.Image {
+func newImage(name string, containerfile string) *imagecontroller.Image {
 	return &imagecontroller.Image{
 		TypeMeta: metav1.TypeMeta{APIVersion: imagecontroller.SchemeGroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{
@@ -75,8 +76,10 @@ func newImage(name string, replicas *int32) *imagecontroller.Image {
 			Namespace: metav1.NamespaceDefault,
 		},
 		Spec: imagecontroller.ImageSpec{
-			DeploymentName: fmt.Sprintf("%s-deployment", name),
-			Replicas:       replicas,
+			Registry:      "example.com",
+			Repository:    "some-image",
+			Tag:           "latest",
+			Containerfile: containerfile,
 		},
 	}
 }
@@ -89,7 +92,10 @@ func (f *fixture) newController() (*Controller, informers.SharedInformerFactory,
 	k8sI := kubeinformers.NewSharedInformerFactory(f.kubeclient, noResyncPeriodFunc())
 
 	c := NewController(f.kubeclient, f.client,
-		k8sI.Apps().V1().Deployments(), i.Imagecontroller().V1alpha1().Images())
+		k8sI.Batch().V1().Jobs(),
+		i.Imagecontroller().V1alpha1().Images(),
+		k8sI.Apps().V1().Deployments(),
+	)
 
 	c.imagesSynced = alwaysReady
 	c.deploymentsSynced = alwaysReady
@@ -99,8 +105,8 @@ func (f *fixture) newController() (*Controller, informers.SharedInformerFactory,
 		i.Imagecontroller().V1alpha1().Images().Informer().GetIndexer().Add(f)
 	}
 
-	for _, d := range f.deploymentLister {
-		k8sI.Apps().V1().Deployments().Informer().GetIndexer().Add(d)
+	for _, d := range f.jobsLister {
+		k8sI.Batch().V1().Jobs().Informer().GetIndexer().Add(d)
 	}
 
 	return c, i, k8sI
@@ -249,6 +255,7 @@ func getKey(image *imagecontroller.Image, t *testing.T) string {
 	return key
 }
 
+/*
 func TestCreatesDeployment(t *testing.T) {
 	f := newFixture(t)
 	image := newImage("test", int32Ptr(1))
@@ -270,7 +277,7 @@ func TestDoNothing(t *testing.T) {
 
 	f.imageLister = append(f.imageLister, image)
 	f.objects = append(f.objects, image)
-	f.deploymentLister = append(f.deploymentLister, d)
+	f.jobsLister = append(f.jobsLister, d)
 	f.kubeobjects = append(f.kubeobjects, d)
 
 	f.expectUpdateImageStatusAction(image)
@@ -288,7 +295,7 @@ func TestUpdateDeployment(t *testing.T) {
 
 	f.imageLister = append(f.imageLister, image)
 	f.objects = append(f.objects, image)
-	f.deploymentLister = append(f.deploymentLister, d)
+	f.jobsLister = append(f.jobsLister, d)
 	f.kubeobjects = append(f.kubeobjects, d)
 
 	f.expectUpdateImageStatusAction(image)
@@ -305,10 +312,44 @@ func TestNotControlledByUs(t *testing.T) {
 
 	f.imageLister = append(f.imageLister, image)
 	f.objects = append(f.objects, image)
-	f.deploymentLister = append(f.deploymentLister, d)
+	f.jobsLister = append(f.jobsLister, d)
 	f.kubeobjects = append(f.kubeobjects, d)
 
 	f.runExpectError(getKey(image, t))
 }
+*/
 
-func int32Ptr(i int32) *int32 { return &i }
+func TestFindJob(t *testing.T) {
+	var (
+		image    = &imagev1alpha1.Image{} // Only used for IsControlledBy check
+		someJob  = newBuildJob(newImage("test", "FROM busybox"))
+		otherJob = newBuildJob(newImage("other", "FROM debian"))
+	)
+	for _, tc := range []struct {
+		name  string
+		job   *batchv1.Job
+		jobs  []*batchv1.Job
+		found bool
+	}{
+		{
+			"job is found",
+			someJob,
+			[]*batchv1.Job{&batchv1.Job{}, someJob, otherJob},
+			true,
+		},
+		{
+			"job is not found",
+			someJob,
+			[]*batchv1.Job{&batchv1.Job{}, otherJob, &batchv1.Job{}},
+			false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := findJob(tc.jobs, tc.job, image)
+			found := got != nil
+			if found != tc.found {
+				t.Fatalf("expected found=%v but found=%v for tc %v", tc.found, got.ObjectMeta.OwnerReferences, tc.job.ObjectMeta.OwnerReferences)
+			}
+		})
+	}
+}

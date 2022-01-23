@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -285,23 +286,14 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	var job *batchv1.Job
-	for _, j := range jobs {
-		// why are there so many nil jobs?
-		if j == nil {
-			continue
-		}
-		if metav1.IsControlledBy(j, image) {
-			//klog.Info("Found job for image:", j)
-			job = j
-			break
-		}
-	}
+	newJob := newBuildJob(image)
+	job := findJob(jobs, newJob, image)
 	if job == nil {
-		job, err = c.kubeclientset.BatchV1().Jobs(image.Namespace).Create(context.TODO(), newBuildJob(image), metav1.CreateOptions{})
-	}
-	if err != nil {
-		return err
+		klog.Info("Creating new job: %v", newJob)
+		job, err = c.kubeclientset.BatchV1().Jobs(image.Namespace).Create(context.TODO(), newJob, metav1.CreateOptions{})
+		if err != nil {
+			return err
+		}
 	}
 
 	success := false
@@ -371,6 +363,34 @@ func (c *Controller) updateDeployments(image *imagev1alpha1.Image) error {
 	return nil
 }
 
+func jobsEqual(a *batchv1.Job, b *batchv1.Job) bool {
+	var (
+		as = a.Spec.Template.Spec
+		bs = b.Spec.Template.Spec
+	)
+
+	return reflect.DeepEqual(as.Containers[0].Args, bs.Containers[0].Args)
+}
+
+// findJob returns the first job in jobs that run the same commands and are also managed by the imagecontroller.
+// This job could have been created in response to any image
+func findJob(jobs []*batchv1.Job, job *batchv1.Job, image *imagev1alpha1.Image) *batchv1.Job {
+	for _, j := range jobs {
+		// why are there so many nil jobs?
+		if j == nil {
+			continue
+		}
+		if !metav1.IsControlledBy(j, image) {
+			continue
+		}
+
+		if jobsEqual(j, job) {
+			klog.Infof("found equal job %v == %v", j.Spec.Template.Spec.Containers[0].Args, job.Spec.Template.Spec.Containers[0].Args)
+			return j
+		}
+	}
+	return nil
+}
 func contains(a []string, s string) bool {
 	for _, e := range a {
 		if e == s {

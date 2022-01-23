@@ -38,6 +38,7 @@ kubectl get images
 ```
 
 ### TODO
-- [ ] Updating image should update/recreate job
+- [x] Updating image should create new job
 - [x] Support build args
 - [ ] Support build context
+- [ ] Add ready status
