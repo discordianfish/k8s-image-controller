@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+	"math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -26,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/diff"
 	kubeinformers "k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -37,6 +40,7 @@ import (
 	imagev1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
 	"github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/fake"
 	informers "github.com/discordianfish/k8s-image-controller/pkg/generated/informers/externalversions"
+	"github.com/google/go-cmp/cmp"
 )
 
 var (
@@ -68,12 +72,20 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
+func genUID() types.UID {
+	rand.Seed(time.Now().UnixNano())
+	b := make([]byte, 32)
+	rand.Read(b)
+	return types.UID(fmt.Sprintf("%x", b)[:32])
+}
+
 func newImage(name string, containerfile string) *imagecontroller.Image {
 	return &imagecontroller.Image{
 		TypeMeta: metav1.TypeMeta{APIVersion: imagecontroller.SchemeGroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: metav1.NamespaceDefault,
+			UID:       genUID(),
 		},
 		Spec: imagecontroller.ImageSpec{
 			Registry:      "example.com",
@@ -321,34 +333,37 @@ func TestNotControlledByUs(t *testing.T) {
 
 func TestFindJob(t *testing.T) {
 	var (
-		image    = &imagev1alpha1.Image{} // Only used for IsControlledBy check
-		someJob  = newBuildJob(newImage("test", "FROM busybox"))
-		otherJob = newBuildJob(newImage("other", "FROM debian"))
+		someImage  = newImage("test", "FROM busybox")
+		otherImage = newImage("test", "FROM debian")
+		someJob    = newBuildJob(someImage)
+		otherJob   = newBuildJob(otherImage)
 	)
 	for _, tc := range []struct {
-		name  string
-		job   *batchv1.Job
-		jobs  []*batchv1.Job
-		found bool
+		name     string
+		jobs     []*batchv1.Job
+		job      *batchv1.Job
+		image    *imagev1alpha1.Image
+		expected *batchv1.Job
 	}{
 		{
 			"job is found",
+			[]*batchv1.Job{otherJob, someJob, otherJob},
 			someJob,
-			[]*batchv1.Job{&batchv1.Job{}, someJob, otherJob},
-			true,
+			someImage,
+			someJob,
 		},
 		{
 			"job is not found",
+			[]*batchv1.Job{otherJob, otherJob, otherJob},
 			someJob,
-			[]*batchv1.Job{&batchv1.Job{}, otherJob, &batchv1.Job{}},
-			false,
+			someImage,
+			nil,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := findJob(tc.jobs, tc.job, image)
-			found := got != nil
-			if found != tc.found {
-				t.Fatalf("expected found=%v but found=%v for tc %v", tc.found, got.ObjectMeta.OwnerReferences, tc.job.ObjectMeta.OwnerReferences)
+			got := findJob(tc.jobs, newBuildJob(tc.image), tc.image)
+			if diff := cmp.Diff(tc.expected, got); diff != "" {
+				t.Fatal("(-want +got)\n", diff)
 			}
 		})
 	}

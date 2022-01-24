@@ -3,6 +3,15 @@
 This repository implements a Kubernetes controller for watching and building
 Image resources defined with a CustomResourceDefinition (CRD).
 
+## Implementation
+- For each Image
+  - Create Job
+  - Find existing Jobs owned by Image
+  - If not found, apply Job and return
+  - If found, compare to created Job
+  - If same, return
+  - If different, apply Job
+
 # Development
 It makes use of the generators in [k8s.io/code-generator](https://github.com/kubernetes/code-generator)
 to generate a typed client, informers, listers and deep-copy functions. You can

@@ -345,9 +345,6 @@ func (c *Controller) updateDeployments(image *imagev1alpha1.Image) error {
 			if namespace == "" {
 				namespace = deployment.Namespace
 			}
-			klog.Info("deployment=", deployment.Namespace, "/", deployment.Name, ", annotion=", k, ", prefix=", prefix, ", imageName=", imageName, ", name=", name, ", namespace=", namespace)
-
-			klog.Infof("name(%s) != image.Name(%s) || namespace(%s) != image.Namespace(%s)", name, image.Name, namespace, image.Namespace)
 			if name != image.Name || namespace != image.Namespace {
 				continue
 			}
@@ -383,7 +380,6 @@ func findJob(jobs []*batchv1.Job, job *batchv1.Job, image *imagev1alpha1.Image) 
 		if !metav1.IsControlledBy(j, image) {
 			continue
 		}
-
 		if jobsEqual(j, job) {
 			klog.Infof("found equal job %v == %v", j.Spec.Template.Spec.Containers[0].Args, job.Spec.Template.Spec.Containers[0].Args)
 			return j
