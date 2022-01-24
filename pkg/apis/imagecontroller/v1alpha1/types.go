@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,9 +47,20 @@ type BuildArg struct {
 	Value string `json:"value"`
 }
 
+type ImageCondition struct {
+	Type               ImageConditionType `json:"type"`
+	Status             v1.ConditionStatus `json:"status"`
+	LastTransitionTime *metav1.Time       `json:"lastTransitionTime,omitempty"`
+	Reason             string             `json:"reason,omitempty"`
+	Message            string             `json:"message,omitempty"`
+}
+
+type ImageConditionType string
+
 // ImageStatus is the status for a Image resource
 type ImageStatus struct {
-	Image string `json:"image"`
+	Image      string           `json:"image"`
+	Conditions []ImageCondition `json:"conditions,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

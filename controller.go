@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -296,23 +297,33 @@ func (c *Controller) syncHandler(key string) error {
 		}
 	}
 
+	now := metav1.NewTime(time.Now())
+	condition := imagev1alpha1.ImageCondition{
+		Type:               "Ready",
+		Status:             v1.ConditionTrue,
+		LastTransitionTime: &now,
+	}
 	success := false
 	for _, condition := range job.Status.Conditions {
 		if condition.Status == "True" && condition.Type == "Complete" {
 			success = true
-		}
-	}
-	if success {
-		if err := c.updateDeployments(image); err != nil {
-			return err
+			condition.Type = "Ready"
+			condition.Reason = "Ready"
+			condition.Message = "Build job finished successfully"
 		}
 	}
 
 	// Finally, we update the status block of the Image resource to reflect the
 	// current state of the world
-	err = c.updateImageStatus(image)
+	err = c.updateImageStatus(image, condition)
 	if err != nil {
 		return err
+	}
+
+	if success {
+		if err := c.updateDeployments(image); err != nil {
+			return err
+		}
 	}
 
 	c.recorder.Event(image, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
@@ -381,7 +392,6 @@ func findJob(jobs []*batchv1.Job, job *batchv1.Job, image *imagev1alpha1.Image) 
 			continue
 		}
 		if jobsEqual(j, job) {
-			klog.Infof("found equal job %v == %v", j.Spec.Template.Spec.Containers[0].Args, job.Spec.Template.Spec.Containers[0].Args)
 			return j
 		}
 	}
@@ -419,12 +429,29 @@ func (c *Controller) updateDeployment(deployment *appsv1.Deployment, image *imag
 	return err
 }
 
-func (c *Controller) updateImageStatus(image *imagev1alpha1.Image) error {
+func updateConditions(image *imagev1alpha1.Image, condition imagev1alpha1.ImageCondition) {
+	for i, cond := range image.Status.Conditions {
+		if cond.Type != condition.Type {
+			continue
+		}
+
+		if cond.Status == condition.Status {
+			return // No change
+		}
+
+		image.Status.Conditions[i] = condition
+		return
+	}
+	image.Status.Conditions = append(image.Status.Conditions, condition)
+}
+func (c *Controller) updateImageStatus(image *imagev1alpha1.Image, condition imagev1alpha1.ImageCondition) error {
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	// Or create a copy manually for better performance
 
 	imageCopy := image.DeepCopy()
+	updateConditions(image, condition)
+	klog.Info("setting following conditions", image.Status.Conditions)
 	//imageCopy.Status.AvailableReplicas = deployment.Status.AvailableReplicas
 	// If the CustomResourceSubresources feature gate is not enabled,
 	// we must use Update instead of UpdateStatus to update the Status block of the Image resource.
