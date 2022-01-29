@@ -286,7 +286,12 @@ func (c *Controller) syncHandler(key string) error {
 	if err != nil {
 		return err
 	}
-
+	now := metav1.NewTime(time.Now())
+	condition := imagev1alpha1.ImageCondition{
+		Type:               "Unknown",
+		Status:             v1.ConditionTrue,
+		LastTransitionTime: &now,
+	}
 	newJob := newBuildJob(image)
 	job := findJob(jobs, newJob, image)
 	if job == nil {
@@ -295,21 +300,24 @@ func (c *Controller) syncHandler(key string) error {
 		if err != nil {
 			return err
 		}
+		condition.Type = "Pending"
 	}
 
-	now := metav1.NewTime(time.Now())
-	condition := imagev1alpha1.ImageCondition{
-		Type:               "Ready",
-		Status:             v1.ConditionTrue,
-		LastTransitionTime: &now,
-	}
 	success := false
-	for _, condition := range job.Status.Conditions {
-		if condition.Status == "True" && condition.Type == "Complete" {
+	for _, c := range job.Status.Conditions {
+		if c.Status != "True" {
+			continue
+		}
+		switch c.Type {
+		case "Complete":
 			success = true
 			condition.Type = "Ready"
 			condition.Reason = "Ready"
 			condition.Message = "Build job finished successfully"
+		case "Failed":
+			condition.Type = "Failed"
+			condition.Reason = "Failed"
+			condition.Message = "Build job failed"
 		}
 	}
 
