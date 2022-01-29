@@ -328,7 +328,7 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	if success {
+	if success && updateDeployments {
 		if err := c.updateDeployments(image); err != nil {
 			return err
 		}

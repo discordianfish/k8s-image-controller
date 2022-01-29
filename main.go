@@ -34,8 +34,9 @@ import (
 )
 
 var (
-	masterURL  string
-	kubeconfig string
+	masterURL         string
+	kubeconfig        string
+	updateDeployments bool
 )
 
 func main() {
@@ -81,4 +82,5 @@ func main() {
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.BoolVar(&updateDeployments, "update-deployments", false, "Update deployments refering to this image.")
 }
