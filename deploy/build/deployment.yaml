@@ -1,0 +1,19 @@
+"apiVersion": "apps/v1"
+"kind": "Deployment"
+"metadata":
+  "name": "imagecontroller"
+  "namespace": "kube-system"
+"spec":
+  "replicas": 1
+  "selector":
+    "matchLabels":
+      "name": "imagecontroller"
+  "template":
+    "metadata":
+      "labels":
+        "name": "imagecontroller"
+    "spec":
+      "containers":
+      - "image": "fish/imagecontroller:latest"
+        "name": "imagecontroller"
+      "serviceAccountName": "imagecontroller"

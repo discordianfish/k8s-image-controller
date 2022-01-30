@@ -1,0 +1,18 @@
+"apiVersion": "imagecontroller.k8s.io/v1alpha1"
+"kind": "Image"
+"metadata":
+  "name": "imagecontroller"
+"spec":
+  "containerfile": |
+    FROM docker.io/library/golang:1.17 as builder
+    WORKDIR /usr/src
+    ADD https://github.com/discordianfish/k8s-image-controller/archive/main.tar.gz k8s-image-controller.tar.gz
+    RUN tar --strip-components=1 -xzvf k8s-image-controller.tar.gz && \
+      CGO_ENABLED=0 go install
+   
+    FROM scratch
+    COPY --from=builder /go/bin/k8s-image-controller /
+    ENTRYPOINT [ "/k8s-image-controller" ]
+  "registry": "fish"
+  "repository": "imagecontroller"
+  "tag": "latest"

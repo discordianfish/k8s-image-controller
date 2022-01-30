@@ -1,0 +1,3 @@
+#!/bin/sh
+DEST=${1:-build/}
+jsonnet -J vendor/ manifest.jsonnet -S -c -m "$DEST"
