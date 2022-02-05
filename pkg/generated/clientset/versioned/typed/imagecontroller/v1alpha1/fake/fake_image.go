@@ -36,9 +36,9 @@ type FakeImages struct {
 	ns   string
 }
 
-var imagesResource = schema.GroupVersionResource{Group: "imagecontroller.k8s.io", Version: "v1alpha1", Resource: "images"}
+var imagesResource = schema.GroupVersionResource{Group: "imagecontroller.5pi.de", Version: "v1alpha1", Resource: "images"}
 
-var imagesKind = schema.GroupVersionKind{Group: "imagecontroller.k8s.io", Version: "v1alpha1", Kind: "Image"}
+var imagesKind = schema.GroupVersionKind{Group: "imagecontroller.5pi.de", Version: "v1alpha1", Kind: "Image"}
 
 // Get takes name of the image, and returns the corresponding image object, and an error if there is any.
 func (c *FakeImages) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.Image, err error) {

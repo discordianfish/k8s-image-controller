@@ -50,4 +50,4 @@ kubectl get images
 - [x] Updating image should create new job
 - [x] Support build args
 - [ ] Support build context
-- [ ] Add ready status
+- [x] Add ready status

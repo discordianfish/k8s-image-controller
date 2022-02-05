@@ -13,10 +13,10 @@ local k = import 'k.libsonnet';
                   k.core.v1.serviceAccount.metadata.withNamespace($._config.namespace),
 
   policyRules:: [
-    k.rbac.v1.policyRule.withApiGroups(['imagecontroller.k8s.io']) +
+    k.rbac.v1.policyRule.withApiGroups(['imagecontroller.5pi.de']) +
     k.rbac.v1.policyRule.withResources(['images']) +
     k.rbac.v1.policyRule.withVerbs(['get', 'list', 'watch']),
-    k.rbac.v1.policyRule.withApiGroups(['imagecontroller.k8s.io']) +
+    k.rbac.v1.policyRule.withApiGroups(['imagecontroller.5pi.de']) +
     k.rbac.v1.policyRule.withResources(['images/status']) +
     k.rbac.v1.policyRule.withVerbs(['update']),
     k.rbac.v1.policyRule.withApiGroups(['batch']) +
@@ -34,7 +34,7 @@ local k = import 'k.libsonnet';
                         k.rbac.v1.clusterRoleBinding.bindRole($.cluster_role) +
                         k.rbac.v1.clusterRoleBinding.withSubjects(k.rbac.v1.subject.fromServiceAccount($.serviceaccount)),
 
-  crd: std.parseJson(importstr 'crd.json'),
+  image_crd: std.parseJson(importstr 'image-crd.json'),
 
   container:: k.core.v1.container.new($._config.name, $._config.image_registry + '/' + $._config.image_repository + ':' + $._config.image_tag),
 
@@ -43,7 +43,7 @@ local k = import 'k.libsonnet';
               k.apps.v1.deployment.spec.template.spec.withServiceAccountName($.serviceaccount.metadata.name),
 
   image: {
-    apiVersion: 'imagecontroller.k8s.io/v1alpha1',
+    apiVersion: 'imagecontroller.5pi.de/v1alpha1',
     kind: 'Image',
     metadata: {
       name: 'imagecontroller',

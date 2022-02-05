@@ -2,32 +2,43 @@
 "kind": "CustomResourceDefinition"
 "metadata":
   "annotations":
-    "api-approved.kubernetes.io": "unapproved, experimental-only; please get an approval from Kubernetes API reviewers if you're trying to develop a CRD in the *.k8s.io or *.kubernetes.io groups"
-  "name": "images.imagecontroller.k8s.io"
+    "controller-gen.kubebuilder.io/version": "v0.8.0"
+  "creationTimestamp": null
+  "name": "images.imagecontroller.5pi.de"
 "spec":
-  "group": "imagecontroller.k8s.io"
+  "group": "imagecontroller.5pi.de"
   "names":
     "kind": "Image"
+    "listKind": "ImageList"
     "plural": "images"
+    "singular": "image"
   "scope": "Namespaced"
   "versions":
   - "additionalPrinterColumns":
     - "jsonPath": ".status.conditions[?(@.type==\"Ready\")].status"
       "name": "Ready"
       "type": "string"
-    - "jsonPath": ".status.conditions[?(@.type==\"Ready\")].message"
+    - "jsonPath": ".status.conditions[?(@.type==\"Status\")].status"
       "name": "Status"
-      "priority": 1
       "type": "string"
-    - "description": "CreationTimestamp is a timestamp representing the server time when this object was created. It is not guaranteed to be set in happens-before order across separate operations. Clients may not set this value. It is represented in RFC3339 form and is in UTC."
-      "jsonPath": ".metadata.creationTimestamp"
+    - "jsonPath": ".metadata.creationTimestamp"
       "name": "Age"
       "type": "date"
     "name": "v1alpha1"
     "schema":
       "openAPIV3Schema":
+        "description": "Image is a specification for a Image resource"
         "properties":
+          "apiVersion":
+            "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources"
+            "type": "string"
+          "kind":
+            "description": "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds"
+            "type": "string"
+          "metadata":
+            "type": "object"
           "spec":
+            "description": "ImageSpec is the spec for a Image resource"
             "properties":
               "buildArgs":
                 "items":
@@ -36,6 +47,9 @@
                       "type": "string"
                     "value":
                       "type": "string"
+                  "required":
+                  - "name"
+                  - "value"
                   "type": "object"
                 "type": "array"
               "containerfile":
@@ -46,34 +60,28 @@
                 "type": "string"
               "tag":
                 "type": "string"
+            "required":
+            - "containerfile"
+            - "registry"
+            - "repository"
+            - "tag"
             "type": "object"
           "status":
-            "description": "Status of the Issuer. This is set and managed automatically."
+            "description": "ImageStatus is the status for a Image resource"
             "properties":
               "conditions":
-                "description": "List of status conditions to indicate the status of a Image. Known condition types are `Ready`."
                 "items":
-                  "description": "ImageCondition contains condition information for an Image."
                   "properties":
                     "lastTransitionTime":
-                      "description": "LastTransitionTime is the timestamp corresponding to the last status change of this condition."
                       "format": "date-time"
                       "type": "string"
                     "message":
-                      "description": "Message is a human readable description of the details of the last transition, complementing reason."
                       "type": "string"
                     "reason":
-                      "description": "Reason is a brief machine readable explanation for the condition's last transition."
                       "type": "string"
                     "status":
-                      "description": "Status of the condition, one of (`True`, `False`, `Unknown`)."
-                      "enum":
-                      - "True"
-                      - "False"
-                      - "Unknown"
                       "type": "string"
                     "type":
-                      "description": "Type of the condition, known values are (`Ready`)."
                       "type": "string"
                   "required":
                   - "status"
@@ -81,11 +89,20 @@
                   "type": "object"
                 "type": "array"
               "image":
-                "description": "Fully qualified name of image"
                 "type": "string"
+            "required":
+            - "image"
             "type": "object"
+        "required":
+        - "spec"
         "type": "object"
     "served": true
     "storage": true
     "subresources":
       "status": {}
+"status":
+  "acceptedNames":
+    "kind": ""
+    "plural": ""
+  "conditions": []
+  "storedVersions": []

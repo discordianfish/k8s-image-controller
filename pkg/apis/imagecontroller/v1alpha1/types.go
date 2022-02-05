@@ -26,21 +26,27 @@ import (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // Image is a specification for a Image resource
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[?(@.type=="Status")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:subresource:status
 type Image struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ImageSpec   `json:"spec"`
-	Status ImageStatus `json:"status"`
+	Spec ImageSpec `json:"spec"`
+	// +optional
+	Status ImageStatus `json:"status",omitempty`
 }
 
 // ImageSpec is the spec for a Image resource
 type ImageSpec struct {
-	Containerfile string     `json:"containerfile"`
-	Registry      string     `json:"registry"`
-	Repository    string     `json:"repository"`
-	Tag           string     `json:"tag"`
-	BuildArgs     []BuildArg `json:"buildArgs"`
+	Containerfile string `json:"containerfile"`
+	Registry      string `json:"registry"`
+	Repository    string `json:"repository"`
+	Tag           string `json:"tag"`
+	// +optional
+	BuildArgs []BuildArg `json:"buildArgs"`
 }
 
 type BuildArg struct {

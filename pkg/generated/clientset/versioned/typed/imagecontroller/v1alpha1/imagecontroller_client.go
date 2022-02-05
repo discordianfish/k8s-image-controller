@@ -31,7 +31,7 @@ type ImagecontrollerV1alpha1Interface interface {
 	ImagesGetter
 }
 
-// ImagecontrollerV1alpha1Client is used to interact with features provided by the imagecontroller.k8s.io group.
+// ImagecontrollerV1alpha1Client is used to interact with features provided by the imagecontroller.5pi.de group.
 type ImagecontrollerV1alpha1Client struct {
 	restClient rest.Interface
 }

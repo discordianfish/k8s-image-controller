@@ -438,6 +438,7 @@ func (c *Controller) updateDeployment(deployment *appsv1.Deployment, image *imag
 	return err
 }
 
+// FIXME: This doesn't seem to work properly. Pending never happens
 func updateConditions(image *imagev1alpha1.Image, condition imagev1alpha1.ImageCondition) {
 	for i, cond := range image.Status.Conditions {
 		if cond.Type != condition.Type {

@@ -1,4 +1,4 @@
-"apiVersion": "imagecontroller.k8s.io/v1alpha1"
+"apiVersion": "imagecontroller.5pi.de/v1alpha1"
 "kind": "Image"
 "metadata":
   "name": "imagecontroller"

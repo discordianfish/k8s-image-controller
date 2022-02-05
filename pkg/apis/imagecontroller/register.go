@@ -19,5 +19,5 @@ package imagecontroller
 
 // GroupName is the group name used in this package
 const (
-	GroupName = "imagecontroller.k8s.io"
+	GroupName = "imagecontroller.5pi.de"
 )
