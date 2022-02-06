@@ -1,0 +1,53 @@
+apiVersion: imagecontroller.5pi.de/v1alpha1
+kind: ImageBuilder
+metadata:
+  name: podman
+template:
+  metadata:
+    annotations:
+      "container.apparmor.security.beta.kubernetes.io/builder": "unconfined"
+  spec:
+    restartPolicy: "OnFailure"
+    nodeSelector:
+      "kubernetes.io/hostname": "filer"
+    containers:
+      - name: builder
+        image: "quay.io/podman/stable"
+        workingDir: "/usr/src"
+        args:
+          - "/bin/bash"
+          - "-xeuo"
+          - "pipefail"
+          - "-c"
+          - |
+            mkdir /tmp/context
+            echo "$CONTAINERFILE" > /tmp/context/Containerfile
+            ARGS=$(env | grep ^BUILD || true | sed 's/BUILD_ARG_//' | sed 's/^/--build-arg /')
+            podman build --isolation chroot -t "$IMAGE" $ARGS /tmp/context
+            podman push "$IMAGE"
+        securityContext:
+          runAsUser: 1000
+        resources:
+          limits:
+            "github.com/fuse": 1
+        volumeMounts:
+          - name:      image-push-secret
+            mountPath: /home/podman/.docker
+          - name:      podman-local
+            mountPath: /home/podman/.local/share/containers
+          - name:      tls-certs
+            mountPath: /etc/ssl/certs
+            readOnly:  true
+    volumes:
+      - name: image-push-secret
+        secret:
+            secretName: image-pull-secret
+            items:
+              - key:  ".dockerconfigjson"
+                path: "config.json"
+      - name: "podman-local"
+        hostPath:
+            path: "/tmp/podman-containers"
+      - name: "tls-certs"
+        hostPath:
+            path: "/etc/ssl/certs"

@@ -55,6 +55,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=imagecontroller.5pi.de, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("images"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Imagecontroller().V1alpha1().Images().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("imagebuilders"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Imagecontroller().V1alpha1().ImageBuilders().Informer()}, nil
 
 	}
 

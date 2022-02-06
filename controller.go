@@ -25,29 +25,25 @@ import (
 	"time"
 
 	"github.com/alessio/shellescape"
-	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
 	batchinformers "k8s.io/client-go/informers/batch/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	appslisters "k8s.io/client-go/listers/apps/v1"
 	batchlisters "k8s.io/client-go/listers/batch/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
-	"github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller"
+	"github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
 	imagev1alpha1 "github.com/discordianfish/k8s-image-controller/pkg/apis/imagecontroller/v1alpha1"
 	clientset "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned"
 	imagescheme "github.com/discordianfish/k8s-image-controller/pkg/generated/clientset/versioned/scheme"
@@ -79,12 +75,12 @@ type Controller struct {
 	// imageclientset is a clientset for our own API group
 	imageclientset clientset.Interface
 
-	jobsLister        batchlisters.JobLister
-	jobsSynced        cache.InformerSynced
-	imagesLister      listers.ImageLister
-	imagesSynced      cache.InformerSynced
-	deploymentsLister appslisters.DeploymentLister
-	deploymentsSynced cache.InformerSynced
+	jobsLister          batchlisters.JobLister
+	jobsSynced          cache.InformerSynced
+	imagesLister        listers.ImageLister
+	imagesSynced        cache.InformerSynced
+	imageBuildersLister listers.ImageBuilderLister
+	imageBuildersSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -103,7 +99,7 @@ func NewController(
 	client clientset.Interface,
 	jobInformer batchinformers.JobInformer,
 	imageInformer informers.ImageInformer,
-	deploymentInformer appsinformers.DeploymentInformer) *Controller {
+	imageBuilderInformer informers.ImageBuilderInformer) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -116,14 +112,14 @@ func NewController(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		kubeclientset:     kubeclientset,
-		imageclientset:    client,
-		jobsLister:        jobInformer.Lister(),
-		jobsSynced:        jobInformer.Informer().HasSynced,
-		imagesLister:      imageInformer.Lister(),
-		imagesSynced:      imageInformer.Informer().HasSynced,
-		deploymentsLister: deploymentInformer.Lister(),
-		deploymentsSynced: deploymentInformer.Informer().HasSynced,
+		kubeclientset:       kubeclientset,
+		imageclientset:      client,
+		jobsLister:          jobInformer.Lister(),
+		jobsSynced:          jobInformer.Informer().HasSynced,
+		imagesLister:        imageInformer.Lister(),
+		imagesSynced:        imageInformer.Informer().HasSynced,
+		imageBuildersLister: imageBuilderInformer.Lister(),
+		imageBuildersSynced: imageBuilderInformer.Informer().HasSynced,
 
 		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Images"),
 		recorder:  recorder,
@@ -174,7 +170,7 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.jobsSynced, c.imagesSynced, c.imagesSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.jobsSynced, c.imagesSynced, c.imageBuildersSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -293,7 +289,10 @@ func (c *Controller) syncHandler(key string) error {
 		Status:             v1.ConditionTrue,
 		LastTransitionTime: &now,
 	}
-	newJob := newBuildJob(image)
+	newJob, err := c.newBuildJob(image)
+	if err != nil {
+		return err
+	}
 	job := findJob(jobs, newJob, image)
 	if job == nil {
 		klog.Info("Creating new job: %v", newJob)
@@ -304,14 +303,12 @@ func (c *Controller) syncHandler(key string) error {
 		condition.Type = "Pending"
 	}
 
-	success := false
 	for _, c := range job.Status.Conditions {
 		if c.Status != "True" {
 			continue
 		}
 		switch c.Type {
 		case "Complete":
-			success = true
 			condition.Type = "Ready"
 			condition.Reason = "Ready"
 			condition.Message = "Build job finished successfully"
@@ -329,12 +326,6 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	if success && updateDeployments {
-		if err := c.updateDeployments(image); err != nil {
-			return err
-		}
-	}
-
 	c.recorder.Event(image, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
 	return nil
 }
@@ -347,46 +338,13 @@ func splitNamespace(fqname string) (namespace, name string) {
 	return parts[0], parts[1]
 }
 
-func (c *Controller) updateDeployments(image *imagev1alpha1.Image) error {
-	// FIXME: Find a cheaper way to do this
-	deployments, err := c.deploymentsLister.Deployments("").List(labels.Everything())
-	if err != nil {
-		return err
-	}
-	prefix := "images." + imagecontroller.GroupName + "/"
-	for _, deployment := range deployments {
-
-		containerNames := []string{}
-		for k, imageName := range deployment.ObjectMeta.Annotations {
-			if !strings.HasPrefix(k, prefix) {
-				continue
-			}
-			namespace, name := splitNamespace(imageName)
-			if namespace == "" {
-				namespace = deployment.Namespace
-			}
-			if name != image.Name || namespace != image.Namespace {
-				continue
-			}
-			containerName := k[len(prefix):]
-			klog.Infof("Found deployment %s referencing image %s in container %s, updating it..", deployment.Name, image.Name, containerName)
-			containerNames = append(containerNames, containerName)
-		}
-
-		if err := c.updateDeployment(deployment, image, containerNames); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func jobsEqual(a *batchv1.Job, b *batchv1.Job) bool {
 	var (
 		as = a.Spec.Template.Spec
 		bs = b.Spec.Template.Spec
 	)
 
-	return reflect.DeepEqual(as.Containers[0].Args, bs.Containers[0].Args)
+	return reflect.DeepEqual(as.Containers[0].Env, bs.Containers[0].Env)
 }
 
 // findJob returns the first job in jobs that run the same commands and are also managed by the imagecontroller.
@@ -413,29 +371,6 @@ func contains(a []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func (c *Controller) updateDeployment(deployment *appsv1.Deployment, image *imagev1alpha1.Image, containerNames []string) error {
-	deploymentCopy := deployment.DeepCopy()
-	change := false
-	for i, container := range deploymentCopy.Spec.Template.Spec.Containers {
-		if !contains(containerNames, container.Name) {
-			continue
-		}
-		imageName := nameFromImage(image)
-		if container.Image == imageName {
-			continue
-		}
-		change = true
-		deploymentCopy.Spec.Template.Spec.Containers[i].Image = imageName
-		klog.Info("setting image to ", imageName, "in container ", container.Name)
-	}
-	if !change {
-		return nil
-	}
-	klog.Info("Updating deployment: ", deploymentCopy.Spec.Template.Spec.Containers)
-	_, err := c.kubeclientset.AppsV1().Deployments(deployment.Namespace).Update(context.TODO(), deploymentCopy, metav1.UpdateOptions{})
-	return err
 }
 
 // FIXME: This doesn't seem to work properly. Pending never happens
@@ -528,11 +463,10 @@ func nameFromImage(image *imagev1alpha1.Image) string {
 	return fmt.Sprintf("%s/%s:%s", image.Spec.Registry, image.Spec.Repository, image.Spec.Tag)
 }
 
-func buildArgsFromImage(image *imagev1alpha1.Image) string {
+func formatBuildArgs(image *imagev1alpha1.Image) string {
 	args := make([]string, len(image.Spec.BuildArgs)*2)
 	for i, arg := range image.Spec.BuildArgs {
-		args[i] = "--build-arg"
-		args[i+1] = shellescape.Quote(arg.Name + "=" + arg.Value)
+		args[i] = shellescape.Quote(arg.Name + "=" + arg.Value)
 	}
 	return strings.Join(args, " ")
 }
@@ -540,15 +474,36 @@ func buildArgsFromImage(image *imagev1alpha1.Image) string {
 // newBuildJob creates a new Job for a Image resource. It also sets
 // the appropriate OwnerReferences on the resource so handleObject can discover
 // the Image resource that 'owns' it.
-func newBuildJob(image *imagev1alpha1.Image) *batchv1.Job {
-	uid := int64(1000)
-	// FIXME FIXME: Triple check this is safe
-	script := fmt.Sprintf(`
-mkdir /tmp/context
-echo %s > /tmp/context/Containerfile
-IMAGE="%s"
-podman build --isolation chroot -t "$IMAGE" %s /tmp/context
-podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), nameFromImage(image), buildArgsFromImage(image))
+func (c *Controller) newBuildJob(image *imagev1alpha1.Image) (*batchv1.Job, error) {
+	builders, err := c.imageBuildersLister.List(labels.Everything())
+	//builder, err := c.imageBuildersLister.ImageBuilders("").Get(image.Spec.BuilderName)
+	if err != nil {
+		return nil, fmt.Errorf("Couldn't get ImageBuilder: %w", err)
+	}
+	builder := &v1alpha1.ImageBuilder{}
+	for _, b := range builders {
+		if b.ObjectMeta.Name == image.Spec.BuilderName {
+			builder = b
+			break
+		}
+	}
+
+	staticFields := 2 // 3 Fields we add statically
+	envs := make([]corev1.EnvVar, len(image.Spec.BuildArgs)+staticFields)
+	envs = []corev1.EnvVar{
+		corev1.EnvVar{Name: "CONTAINERFILE", Value: image.Spec.Containerfile},
+		corev1.EnvVar{Name: "IMAGE", Value: nameFromImage(image)},
+	}
+	for i, arg := range image.Spec.BuildArgs {
+		envs[staticFields+i] = corev1.EnvVar{Name: "BUILD_ARG_" + arg.Name, Value: arg.Value}
+	}
+
+	template := builder.Template.DeepCopy()
+	template.Spec.Containers[0].Env = append(
+		template.Spec.Containers[0].Env,
+		envs...,
+	)
+	template.Spec.Containers[0].Env = envs
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: image.Name,
@@ -558,79 +513,7 @@ podman push "$IMAGE"`, shellescape.Quote(image.Spec.Containerfile), nameFromImag
 			},
 		},
 		Spec: batchv1.JobSpec{
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"container.apparmor.security.beta.kubernetes.io/builder": "unconfined",
-					},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: "OnFailure",
-					NodeSelector: map[string]string{
-						"kubernetes.io/hostname": "filer",
-					},
-					Containers: []corev1.Container{
-						{
-							Name:       "builder",
-							Image:      "quay.io/podman/stable",
-							WorkingDir: "/usr/src",
-							Args:       []string{"/bin/bash", "-xeuo", "pipefail", "-c", script},
-							SecurityContext: &corev1.SecurityContext{
-								RunAsUser: &uid,
-							},
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									"github.com/fuse": resource.MustParse("1"),
-								},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "image-push-secret",
-									MountPath: "/home/podman/.docker",
-								}, {
-									Name:      "podman-local",
-									MountPath: "/home/podman/.local/share/containers",
-								}, {
-									Name:      "tls-certs",
-									MountPath: "/etc/ssl/certs",
-									ReadOnly:  true,
-								},
-							},
-						},
-					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "image-push-secret",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: "image-pull-secret",
-									Items: []corev1.KeyToPath{
-										{
-											Key:  ".dockerconfigjson",
-											Path: "config.json",
-										},
-									},
-								},
-							},
-						},
-						{
-							Name: "podman-local",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/tmp/podman-containers",
-								},
-							},
-						}, {
-							Name: "tls-certs",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/etc/ssl/certs",
-								},
-							},
-						},
-					},
-				},
-			},
+			Template: *template,
 		},
-	}
+	}, nil
 }

@@ -3,6 +3,7 @@
 "metadata":
   "name": "imagecontroller"
 "spec":
+  "builderName": "podman"
   "containerfile": |
     FROM docker.io/library/golang:1.17 as builder
     WORKDIR /usr/src

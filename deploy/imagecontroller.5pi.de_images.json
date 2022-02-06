@@ -73,6 +73,9 @@
                     },
                     "type": "array"
                   },
+                  "builderName": {
+                    "type": "string"
+                  },
                   "containerfile": {
                     "type": "string"
                   },
@@ -87,6 +90,7 @@
                   }
                 },
                 "required": [
+                  "builderName",
                   "containerfile",
                   "registry",
                   "repository",

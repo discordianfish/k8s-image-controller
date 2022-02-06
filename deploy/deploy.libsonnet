@@ -8,13 +8,14 @@ local k = import 'k.libsonnet';
     image_repository: self.name,
     image_tag: 'latest',
     image_ref: 'main',
+    builder_name: 'podman',
   },
   serviceaccount: k.core.v1.serviceAccount.new($._config.name) +
                   k.core.v1.serviceAccount.metadata.withNamespace($._config.namespace),
 
   policyRules:: [
     k.rbac.v1.policyRule.withApiGroups(['imagecontroller.5pi.de']) +
-    k.rbac.v1.policyRule.withResources(['images']) +
+    k.rbac.v1.policyRule.withResources(['images', 'imagebuilders']) +
     k.rbac.v1.policyRule.withVerbs(['get', 'list', 'watch']),
     k.rbac.v1.policyRule.withApiGroups(['imagecontroller.5pi.de']) +
     k.rbac.v1.policyRule.withResources(['images/status']) +
@@ -34,7 +35,8 @@ local k = import 'k.libsonnet';
                         k.rbac.v1.clusterRoleBinding.bindRole($.cluster_role) +
                         k.rbac.v1.clusterRoleBinding.withSubjects(k.rbac.v1.subject.fromServiceAccount($.serviceaccount)),
 
-  image_crd: std.parseJson(importstr 'image-crd.json'),
+  image_crd: std.parseJson(importstr 'imagecontroller.5pi.de_images.json'),
+  imagebuilder_crd: std.parseJson(importstr 'imagecontroller.5pi.de_imagebuilders.json'),
 
   container:: k.core.v1.container.new($._config.name, $._config.image_registry + '/' + $._config.image_repository + ':' + $._config.image_tag),
 
@@ -52,6 +54,7 @@ local k = import 'k.libsonnet';
       registry: $._config.image_registry,
       repository: $._config.image_repository,
       tag: $._config.image_tag,
+      builderName: $._config.builder_name,
       containerfile: |||
         FROM docker.io/library/golang:1.17 as builder
         WORKDIR /usr/src

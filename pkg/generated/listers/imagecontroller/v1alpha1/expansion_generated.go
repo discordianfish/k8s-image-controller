@@ -25,3 +25,11 @@ type ImageListerExpansion interface{}
 // ImageNamespaceListerExpansion allows custom methods to be added to
 // ImageNamespaceLister.
 type ImageNamespaceListerExpansion interface{}
+
+// ImageBuilderListerExpansion allows custom methods to be added to
+// ImageBuilderLister.
+type ImageBuilderListerExpansion interface{}
+
+// ImageBuilderNamespaceListerExpansion allows custom methods to be added to
+// ImageBuilderNamespaceLister.
+type ImageBuilderNamespaceListerExpansion interface{}

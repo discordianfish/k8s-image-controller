@@ -26,6 +26,8 @@ import (
 type Interface interface {
 	// Images returns a ImageInformer.
 	Images() ImageInformer
+	// ImageBuilders returns a ImageBuilderInformer.
+	ImageBuilders() ImageBuilderInformer
 }
 
 type version struct {
@@ -42,4 +44,9 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // Images returns a ImageInformer.
 func (v *version) Images() ImageInformer {
 	return &imageInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// ImageBuilders returns a ImageBuilderInformer.
+func (v *version) ImageBuilders() ImageBuilderInformer {
+	return &imageBuilderInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

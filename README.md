@@ -49,5 +49,7 @@ kubectl get images
 ### TODO
 - [x] Updating image should create new job
 - [x] Support build args
+- [x] Add Builder CRD
+- [ ] Add telemetry
 - [ ] Support build context
 - [x] Add ready status

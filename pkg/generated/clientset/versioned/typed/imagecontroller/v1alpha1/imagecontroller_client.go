@@ -29,6 +29,7 @@ import (
 type ImagecontrollerV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ImagesGetter
+	ImageBuildersGetter
 }
 
 // ImagecontrollerV1alpha1Client is used to interact with features provided by the imagecontroller.5pi.de group.
@@ -38,6 +39,10 @@ type ImagecontrollerV1alpha1Client struct {
 
 func (c *ImagecontrollerV1alpha1Client) Images(namespace string) ImageInterface {
 	return newImages(c, namespace)
+}
+
+func (c *ImagecontrollerV1alpha1Client) ImageBuilders(namespace string) ImageBuilderInterface {
+	return newImageBuilders(c, namespace)
 }
 
 // NewForConfig creates a new ImagecontrollerV1alpha1Client for the given config.

@@ -32,6 +32,10 @@ func (c *FakeImagecontrollerV1alpha1) Images(namespace string) v1alpha1.ImageInt
 	return &FakeImages{c, namespace}
 }
 
+func (c *FakeImagecontrollerV1alpha1) ImageBuilders(namespace string) v1alpha1.ImageBuilderInterface {
+	return &FakeImageBuilders{c, namespace}
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeImagecontrollerV1alpha1) RESTClient() rest.Interface {

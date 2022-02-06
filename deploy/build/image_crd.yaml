@@ -52,6 +52,8 @@
                   - "value"
                   "type": "object"
                 "type": "array"
+              "builderName":
+                "type": "string"
               "containerfile":
                 "type": "string"
               "registry":
@@ -61,6 +63,7 @@
               "tag":
                 "type": "string"
             "required":
+            - "builderName"
             - "containerfile"
             - "registry"
             - "repository"

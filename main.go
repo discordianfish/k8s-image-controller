@@ -68,7 +68,7 @@ func main() {
 	controller := NewController(kubeClient, client,
 		kubeInformerFactory.Batch().V1().Jobs(),
 		informerFactory.Imagecontroller().V1alpha1().Images(),
-		kubeInformerFactory.Apps().V1().Deployments())
+		informerFactory.Imagecontroller().V1alpha1().ImageBuilders())
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
@@ -83,5 +83,4 @@ func main() {
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-	flag.BoolVar(&updateDeployments, "update-deployments", false, "Update deployments refering to this image.")
 }
